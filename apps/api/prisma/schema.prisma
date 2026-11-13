@@ -1,0 +1,868 @@
+// Nexus Marine — merkezi PostgreSQL veri modeli
+// Web dashboard, müşteri portalı ve mobil uygulama bu tek veritabanını ortak API üzerinden kullanır.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  OPERATIONS_MANAGER
+  TECHNICIAN
+  CAPTAIN
+  OWNER
+}
+
+enum VesselRelation {
+  OWNER
+  CAPTAIN
+  CREW
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum WorkOrderStatus {
+  REQUESTED
+  EVALUATION
+  PLANNED
+  ASSIGNED
+  IN_PROGRESS
+  TECHNICAL_REVIEW
+  COMPLETED
+  PUBLISHED
+  CLOSED
+  ON_HOLD
+  REVISION_REQUIRED
+  CANCELLED
+}
+
+enum MaintenanceStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+  CANCELLED
+}
+
+/// Bakım başlıkları (kategoriler) — Bakım Yönetimi'nden eklenir / düzenlenir.
+/// Yerleşik anahtarlar: MECHANICAL, ELECTRICAL, HAUL_OUT, COSMETIC
+model MaintCategory {
+  key       String   @id
+  label     String
+  short     String
+  items     String[]
+  color     String   @default("#1767AD")
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  builtIn   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum InspectionStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+}
+
+enum InspectionResult {
+  OK
+  ATTENTION
+  FAULT
+  NA
+}
+
+enum FaultStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+}
+
+enum ReportType {
+  INSPECTION
+  POST_SCRAPING
+  HULL_RESTORATION
+  TEAK_CARPENTRY
+  DELIVERY_PROTOCOL
+  PROJECT_PROPOSAL
+  WEEKLY_SERVICE
+  CUSTOM
+}
+
+enum ReportStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  PUBLISHED
+  SUPERSEDED
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  DELIVERED
+  CANCELLED
+}
+
+enum PhaseStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  DONE
+}
+
+enum ChangeRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum CustomerStatus {
+  ACTIVE
+  PENDING
+  INACTIVE
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  phone        String?
+  title        String?
+  roles        Role[]
+  isActive     Boolean  @default(true)
+  avatarUrl    String?
+  /// Tekne sahibi kullanıcının bağlı olduğu müşteri kaydı
+  customerId   String?
+  customer     Customer? @relation(fields: [customerId], references: [id])
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  vesselLinks        VesselMember[]
+  assignedWorkOrders WorkOrder[]          @relation("WOTechnician")
+  requestedWorkOrders WorkOrder[]         @relation("WORequester")
+  history            WorkOrderHistory[]
+  comments           WorkOrderComment[]
+  notifications      Notification[]
+  pushTokens         PushToken[]
+  inspections        Inspection[]         @relation("Inspector")
+  maintenancePlans   MaintenancePlan[]
+  managedProjects    Project[]
+  phases             ProjectPhase[]
+  customerNotes      CustomerNote[]
+  auditLogs          AuditLog[]
+
+  @@index([customerId])
+}
+
+model PushToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  platform  String?
+  createdAt DateTime @default(now())
+}
+
+model Customer {
+  id        String         @id @default(cuid())
+  name      String
+  company   String?
+  email     String?
+  phone     String?
+  address   String?
+  taxNumber String?
+  status    CustomerStatus @default(ACTIVE)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  users     User[]
+  vessels   Vessel[]
+  quotes    Quote[]
+  payments  Payment[]
+  notes     CustomerNote[]
+  documents Document[]
+}
+
+model CustomerNote {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  authorId   String
+  author     User     @relation(fields: [authorId], references: [id])
+  body       String
+  createdAt  DateTime @default(now())
+}
+
+model Vessel {
+  id            String   @id @default(cuid())
+  name          String
+  type          String?
+  make          String?
+  model         String?
+  year          Int?
+  lengthM       Float?
+  flag          String?
+  marina        String?
+  berth         String?
+  ownerId       String?
+  owner         Customer? @relation(fields: [ownerId], references: [id])
+  contactPhone  String?
+  contactEmail  String?
+  generatorInfo Json?
+  batteryInfo   Json?
+  equipment     Json?
+  coverPhotoId  String?
+  notes         String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  members          VesselMember[]
+  engines          Engine[]
+  maintenancePlans MaintenancePlan[]
+  workOrders       WorkOrder[]
+  inspections      Inspection[]
+  faults           Fault[]
+  reports          Report[]
+  projects         Project[]
+  quotes           Quote[]
+  documents        Document[]
+  attachments      Attachment[]
+
+  @@index([ownerId])
+}
+
+/// Kullanıcı ↔ tekne ilişkisi (kaptan, ek sahip, mürettebat). Birden fazla ilişki atanabilir.
+model VesselMember {
+  id       String         @id @default(cuid())
+  userId   String
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vesselId String
+  vessel   Vessel         @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  relation VesselRelation
+
+  @@unique([userId, vesselId, relation])
+}
+
+model Engine {
+  id           String   @id @default(cuid())
+  vesselId     String
+  vessel       Vessel   @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  position     String // İskele / Sancak / Jeneratör
+  make         String?
+  model        String?
+  serialNumber String?
+  hours        Float    @default(0)
+  hoursUpdatedAt DateTime?
+  maintenancePlans MaintenancePlan[]
+}
+
+model MaintenancePlan {
+  id             String              @id @default(cuid())
+  title          String
+  category       String
+  subType        String?
+  vesselId       String
+  vessel         Vessel              @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  description    String?
+  plannedDate    DateTime
+  startDate      DateTime?
+  endDate        DateTime?
+  technicianId   String?
+  technician     User?               @relation(fields: [technicianId], references: [id])
+  priority       Priority            @default(MEDIUM)
+  plannedMaterials Json?
+  estimatedHours Float?
+  actualHours    Float?
+  status         MaintenanceStatus   @default(PLANNED)
+  technicalNotes String?
+  /// Tarih bazlı tekrar (gün)
+  intervalDays   Int?
+  /// Periyodik tekrar: haftanın günleri (0=Paz … 6=Cmt) veya ayın günü; aynı serideki planlar seriesId ile bağlıdır
+  repeatWeekdays Int[]               @default([])
+  repeatMonthDay Int?
+  /// Periyodik bakımın bitiş tarihi (bu tarihe kadar tekrarlanır)
+  repeatUntil    DateTime?
+  seriesId       String?
+  /// Ek teknisyenler (sorumlu teknisyen technicianId)
+  helperIds      String[]            @default([])
+  /// STAFF | CUSTOMER (müşteri portalından planlanan)
+  source         String              @default("STAFF")
+  /// Müşteri planı onay akışı: PENDING (ekip inceliyor) | QUOTE_SENT (teklif müşteride) | APPROVED | REJECTED; null = onay gerekmez
+  approvalStatus String?
+  /// Bakıma bağlanan teklif (müşteri onaylayınca bakım takvime düşer)
+  quoteId        String?
+  quote          Quote?              @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+  requestedById  String?
+  /// Motor saati bazlı tekrar
+  engineId       String?
+  engine         Engine?             @relation(fields: [engineId], references: [id])
+  intervalEngineHours Float?
+  dueEngineHours Float?
+  /// Kara bakımı alanları
+  haulOutDate    DateTime?
+  launchDate     DateTime?
+  /// Eski kullanım: plandan dönüştürülen iş emri (yeni planlarda kullanılmaz)
+  workOrderId    String?             @unique
+  workOrder      WorkOrder?          @relation("PlanWorkOrder", fields: [workOrderId], references: [id])
+  /// Bakım adımları: [{ label, done, doneAt?, doneBy? }]
+  checklist      Json?
+  completedAt    DateTime?
+  completedById  String?
+  completedBy    String?
+  /// Müşteriye görünen tamamlama özeti
+  completionNote String?
+  /// Bakıma bağlı ek işler (iş emirleri)
+  extraWorkOrders WorkOrder[]        @relation("PlanExtras")
+  comments       MaintenanceComment[]
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([vesselId, plannedDate])
+  @@index([status])
+  @@index([seriesId])
+}
+
+model WorkOrder {
+  id            String          @id @default(cuid())
+  number        String          @unique
+  vesselId      String
+  vessel        Vessel          @relation(fields: [vesselId], references: [id])
+  requestedById String?
+  requestedBy   User?           @relation("WORequester", fields: [requestedById], references: [id])
+  title         String
+  description   String?
+  category      String?
+  priority      Priority        @default(MEDIUM)
+  status        WorkOrderStatus @default(REQUESTED)
+  technicianId  String?
+  technician    User?           @relation("WOTechnician", fields: [technicianId], references: [id])
+  /// Ek teknisyenler (birden fazla teknisyen)
+  helperIds     String[]        @default([])
+  plannedStart  DateTime?
+  plannedEnd    DateTime?
+  plannedHours  Float?
+  actualHours   Float?
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  checklist     Json?
+  /// Müşteriye yayınlanacak özet (operasyon yöneticisi onayından sonra görünür)
+  customerSummary String?
+  publishedAt   DateTime?
+  projectId     String?
+  project       Project?        @relation(fields: [projectId], references: [id])
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  history         WorkOrderHistory[]
+  comments        WorkOrderComment[]
+  materials       MaterialUsage[]
+  maintenancePlan MaintenancePlan? @relation("PlanWorkOrder")
+  /// Bağlı olduğu bakım (paket) — opsiyonel; ek iş olarak açılır
+  parentPlanId    String?
+  parentPlan      MaintenancePlan? @relation("PlanExtras", fields: [parentPlanId], references: [id], onDelete: SetNull)
+  faults          Fault[]
+  reports         Report[]
+
+  @@index([vesselId])
+  @@index([status])
+  @@index([technicianId])
+  @@index([parentPlanId])
+}
+
+model WorkOrderHistory {
+  id          String           @id @default(cuid())
+  workOrderId String
+  workOrder   WorkOrder        @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?            @relation(fields: [userId], references: [id])
+  fromStatus  WorkOrderStatus?
+  toStatus    WorkOrderStatus
+  note        String?
+  createdAt   DateTime         @default(now())
+
+  @@index([workOrderId])
+}
+
+model WorkOrderComment {
+  id          String    @id @default(cuid())
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  body        String
+  /// true: yalnızca personel görür
+  internal    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+}
+
+/// Genel dosya/fotoğraf kaydı. entityType: WORK_ORDER, INSPECTION_ITEM, VESSEL, PROJECT, PHASE, REPORT, DOCUMENT, FAULT
+model Attachment {
+  id              String   @id @default(cuid())
+  entityType      String
+  entityId        String
+  vesselId        String?
+  vessel          Vessel?  @relation(fields: [vesselId], references: [id])
+  fileName        String
+  mimeType        String
+  size            Int
+  storageKey      String
+  caption         String?
+  /// BEFORE / AFTER / GENERAL
+  tag             String?
+  customerVisible Boolean  @default(false)
+  uploadedById    String?
+  createdAt       DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([vesselId])
+}
+
+model Inspection {
+  id              String           @id @default(cuid())
+  number          String           @unique
+  vesselId        String
+  vessel          Vessel           @relation(fields: [vesselId], references: [id])
+  inspectorId     String
+  inspector       User             @relation("Inspector", fields: [inspectorId], references: [id])
+  captainName     String?
+  date            DateTime         @default(now())
+  status          InspectionStatus @default(DRAFT)
+  templateVersion String
+  generalNotes    String?
+  /// Lokasyon / bağlama ve peron
+  location        String?
+  pier            String?
+  /// Bölüm 19: READY / FOLLOW_UP / NOT_READY
+  operationalStatus String?
+  /// Bölüm 18: tespit edilen arızalar tablosu [{description, priority, responsible, serviceStatus}]
+  findings        Json?
+  /// Bölüm 17: siyah/gri su boşaltımı (pump-out) yapıldı
+  pumpOutDone     Boolean          @default(false)
+  /// Denetimi yapan kaptan / enspektörün görevi
+  inspectorTitle  String?
+  /// Denetimi yapan kaptan / enspektörün adı (boşsa denetçi kullanıcının adı)
+  inspectorName   String?
+  submittedAt     DateTime?
+  approvedById    String?
+  approvedAt      DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  items  InspectionItem[]
+  report Report?
+
+  @@index([vesselId, date])
+}
+
+model InspectionItem {
+  id           String            @id @default(cuid())
+  inspectionId String
+  inspection   Inspection        @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  sectionCode  String
+  itemCode     String
+  label        String
+  unit         String?
+  /// Standart teknik kontrol tanımı
+  description  String?
+  /// Bölüm 17: önceki hafta değeri
+  previousMeasurement String?
+  result       InspectionResult?
+  note         String?
+  measurement  String?
+  fault        Fault?
+
+  @@unique([inspectionId, itemCode])
+}
+
+model Fault {
+  id               String      @id @default(cuid())
+  vesselId         String
+  vessel           Vessel      @relation(fields: [vesselId], references: [id])
+  title            String
+  description      String?
+  severity         Priority    @default(HIGH)
+  status           FaultStatus @default(OPEN)
+  source           String      @default("MANUAL")
+  inspectionItemId String?     @unique
+  inspectionItem   InspectionItem? @relation(fields: [inspectionItemId], references: [id], onDelete: SetNull)
+  workOrderId      String?
+  workOrder        WorkOrder?  @relation(fields: [workOrderId], references: [id])
+  reportedById     String?
+  createdAt        DateTime    @default(now())
+  resolvedAt       DateTime?
+  comments         FaultComment[]
+
+  @@index([vesselId, status])
+}
+
+model Report {
+  id              String       @id @default(cuid())
+  number          String       @unique
+  type            ReportType
+  title           String
+  vesselId        String
+  vessel          Vessel       @relation(fields: [vesselId], references: [id])
+  workOrderId     String?
+  workOrder       WorkOrder?   @relation(fields: [workOrderId], references: [id])
+  projectId       String?
+  project         Project?     @relation(fields: [projectId], references: [id])
+  inspectionId    String?      @unique
+  inspection      Inspection?  @relation(fields: [inspectionId], references: [id])
+  status          ReportStatus @default(DRAFT)
+  currentVersion  Int          @default(1)
+  customerVisible Boolean      @default(false)
+  /// Müşteri onayı (sözleşme / protokol / teklif dosyası): PENDING / APPROVED / REJECTED
+  approvalStatus      String?
+  approvalRequestedAt DateTime?
+  approvalDecidedAt   DateTime?
+  approvalDecidedById String?
+  approvalDecidedBy   String?
+  approvalNote        String?
+  /// Otomatik dönem raporları için anahtar (ör. haftalık: 2026-W45)
+  periodKey           String?
+  /// Rapor başlığı (dinamik kategori)
+  categoryId          String?
+  /// Finans ve tahsilat: sözleşme bedeli ve ödeme durumu
+  contractAmount      Float?
+  contractCurrency    String       @default("EUR")
+  paidAt              DateTime?
+  paidBy              String?
+  createdById     String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  versions ReportVersion[]
+
+  @@index([vesselId])
+  @@index([vesselId, periodKey])
+  @@index([categoryId])
+}
+
+/// Rapor / sözleşme başlıkları (dinamik kategoriler) — Raporlar ve Sözleşmeler sayfalarındaki kartlar
+model ReportCategory {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  tone        String     @default("blue")
+  /// Belgenin düzeni (yerleşik tür veya CUSTOM = serbest başlıklı belge)
+  baseType    ReportType
+  /// reports | contracts
+  group       String     @default("reports")
+  sortOrder   Int        @default(0)
+  isActive    Boolean    @default(true)
+  builtIn     Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+/// Standart rapor / sözleşme şablonları — yeni belge bu içerikle başlar
+model ReportTemplate {
+  id          String     @id @default(cuid())
+  name        String
+  type        ReportType
+  description String?
+  data        Json
+  isDefault   Boolean    @default(false)
+  /// Şablonun ait olduğu rapor başlığı (kategori)
+  categoryId  String?
+  createdById String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([type])
+}
+
+/// Rapor sürümleri. Onaylı bir rapor düzenlendiğinde yeni sürüm oluşturulur.
+model ReportVersion {
+  id           String       @id @default(cuid())
+  reportId     String
+  report       Report       @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  version      Int
+  status       ReportStatus @default(DRAFT)
+  data         Json
+  /// Yetkili kullanıcı onayıyla eklenen hukuki/teknik beyanlar
+  clauses      Json?
+  createdById  String?
+  approvedById String?
+  approvedAt   DateTime?
+  pdfKey       String?
+  changeNote   String?
+  createdAt    DateTime     @default(now())
+
+  @@unique([reportId, version])
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  name        String
+  vesselId    String
+  vessel      Vessel        @relation(fields: [vesselId], references: [id])
+  managerId   String?
+  manager     User?         @relation(fields: [managerId], references: [id])
+  description String?
+  startDate   DateTime?
+  endDate     DateTime?
+  status      ProjectStatus @default(PLANNING)
+  budget      Float?
+  currency    String        @default("EUR")
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  phases         ProjectPhase[]
+  changeRequests ChangeRequest[]
+  workOrders     WorkOrder[]
+  reports        Report[]
+  materials      MaterialUsage[]
+  payments       Payment[]
+  installments   PaymentInstallment[]
+}
+
+model ProjectPhase {
+  id            String      @id @default(cuid())
+  projectId     String
+  project       Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name          String
+  order         Int
+  responsibleId String?
+  responsible   User?       @relation(fields: [responsibleId], references: [id])
+  startDate     DateTime?
+  endDate       DateTime?
+  status        PhaseStatus @default(NOT_STARTED)
+  materials     String?
+  notes         String?
+  tasks         ProjectTask[]
+}
+
+model ProjectTask {
+  id      String       @id @default(cuid())
+  phaseId String
+  phase   ProjectPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  title   String
+  done    Boolean      @default(false)
+  weight  Float        @default(1)
+  doneAt  DateTime?
+}
+
+/// Kaptandan / müşteriden gelen ek iş talepleri
+model ChangeRequest {
+  id          String              @id @default(cuid())
+  projectId   String
+  project     Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requestedBy String?
+  title       String
+  description String?
+  extraDays   Int                 @default(0)
+  extraCost   Float               @default(0)
+  status      ChangeRequestStatus @default(PENDING)
+  decidedAt   DateTime?
+  createdAt   DateTime            @default(now())
+}
+
+model Material {
+  id        String   @id @default(cuid())
+  name      String
+  sku       String?  @unique
+  category  String
+  unit      String
+  stock     Float    @default(0)
+  minStock  Float    @default(0)
+  unitCost  Float    @default(0)
+  currency  String   @default("EUR")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  usages MaterialUsage[]
+}
+
+model MaterialUsage {
+  id          String     @id @default(cuid())
+  materialId  String
+  material    Material   @relation(fields: [materialId], references: [id])
+  workOrderId String?
+  workOrder   WorkOrder? @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  projectId   String?
+  project     Project?   @relation(fields: [projectId], references: [id])
+  quantity    Float
+  unitCost    Float
+  userId      String?
+  usedAt      DateTime   @default(now())
+}
+
+model Quote {
+  id           String      @id @default(cuid())
+  number       String      @unique
+  customerId   String
+  customer     Customer    @relation(fields: [customerId], references: [id])
+  vesselId     String?
+  vessel       Vessel?     @relation(fields: [vesselId], references: [id])
+  title        String
+  status       QuoteStatus @default(DRAFT)
+  currency     String      @default("EUR")
+  vatRate      Float       @default(20)
+  validUntil   DateTime?
+  sentAt       DateTime?
+  approvedAt   DateTime?
+  rejectedAt   DateTime?
+  responseNote String?
+  notes        String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  items    QuoteItem[]
+  payments Payment[]
+  maintenancePlans MaintenancePlan[]
+}
+
+model QuoteItem {
+  id          String @id @default(cuid())
+  quoteId     String
+  quote       Quote  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float
+  unit        String @default("adet")
+  unitPrice   Float
+  order       Int    @default(0)
+}
+
+model Payment {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  projectId  String?
+  project    Project? @relation(fields: [projectId], references: [id])
+  quoteId    String?
+  quote      Quote?   @relation(fields: [quoteId], references: [id])
+  amount     Float
+  currency   String   @default("EUR")
+  date       DateTime @default(now())
+  method     String?
+  note       String?
+  /// Tahsilat makbuzu numarası (TAH-2026-0001) ve bağlı sözleşme
+  number     String?  @unique
+  reportId   String?
+  receivedBy String?
+  createdAt  DateTime @default(now())
+
+  @@index([reportId])
+}
+
+model PaymentInstallment {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  dueDate   DateTime
+  amount    Float
+  paid      Boolean  @default(false)
+  note      String?
+}
+
+model Document {
+  id              String    @id @default(cuid())
+  title           String
+  category        String // CONTRACT, CERTIFICATE, INSURANCE, TECHNICAL, WARRANTY, OTHER
+  vesselId        String?
+  vessel          Vessel?   @relation(fields: [vesselId], references: [id])
+  customerId      String?
+  customer        Customer? @relation(fields: [customerId], references: [id])
+  attachmentId    String?
+  customerVisible Boolean   @default(false)
+  expiryDate      DateTime?
+  notes           String?
+  createdById     String?
+  createdAt       DateTime  @default(now())
+}
+
+model Notification {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       String
+  title      String
+  body       String?
+  entityType String?
+  entityId   String?
+  link       String?
+  /// Aynı olayın tekrar bildirim üretmesini engeller
+  dedupeKey  String?
+  /// true: kaptan / tekne sahibi kaynaklı (müşteri bildirimi), false: ekip içi
+  fromClient Boolean   @default(false)
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String
+  entityType String
+  entityId   String?
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model Counter {
+  key   String @id
+  value Int    @default(0)
+}
+
+/// Bakım yorumları (iş emri yorumları gibi; dahili veya müşteriye açık)
+model MaintenanceComment {
+  id        String          @id @default(cuid())
+  planId    String
+  plan      MaintenancePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  userId    String?
+  userName  String
+  body      String
+  internal  Boolean         @default(false)
+  createdAt DateTime        @default(now())
+
+  @@index([planId])
+}
+
+/// Arıza bildirimi yorumları (iş emri açılmadan önce); iş emri açılınca yorumlar iş emrinin müşteri kanalına yazılır
+model FaultComment {
+  id        String   @id @default(cuid())
+  faultId   String
+  fault     Fault    @relation(fields: [faultId], references: [id], onDelete: Cascade)
+  userId    String?
+  userName  String
+  body      String
+  internal  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([faultId])
+}
