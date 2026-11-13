@@ -2,7 +2,6 @@
 import { PrismaClient, type Customer, type User, type Priority, type WorkOrderStatus, type Role, type MaintenanceStatus } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { INSPECTION_TEMPLATE, INSPECTION_TEMPLATE_VERSION, HULL_RESTORATION_PHASES, protocolTemplate, proposalTemplate, scrapingTemplate } from '@nexus/shared';
-import { extendSeries } from '../src/services/maintSeries';
 
 /**
  * Sade demo verisi: 2 tekne, 2 müşteri, bakım paketleri (periyodik seriler dahil),
@@ -90,6 +89,41 @@ const PKG: Record<string, Pkg> = {
     steps: ['Karaya alma ve basınçlı yıkama', 'Mekanik kazıma ve nem ölçümü', 'Anot değişimi', 'Şaft ve pervane polisajı', 'Zehirli boya (2 kat)', 'Suya indirme ve kaçak kontrolü'],
   },
 };
+
+/**
+ * Periyodik seriyi ileriye uzatır (uygulamadaki maintSeries ile aynı mantık). Seed, Docker imajında
+ * yalnızca derlenmiş kod bulunduğu için src/ dosyalarını içe aktarmaz.
+ */
+async function extendSeries(seriesId: string) {
+  const last = await prisma.maintenancePlan.findFirst({ where: { seriesId }, orderBy: { plannedDate: 'desc' } });
+  if (!last || !last.repeatUntil || (!last.repeatWeekdays.length && !last.repeatMonthDay)) return 0;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const after = new Date(Math.max(last.plannedDate.getTime(), today.getTime() - 1));
+  const dates: Date[] = [];
+  const at = (d: Date) => { const x = new Date(d); x.setHours(last.plannedDate.getHours(), last.plannedDate.getMinutes(), 0, 0); return x; };
+  if (last.repeatWeekdays.length) {
+    for (let d = new Date(after.getTime() + 864e5); d <= last.repeatUntil; d = new Date(d.getTime() + 864e5)) {
+      if (last.repeatWeekdays.includes(d.getDay())) dates.push(at(d));
+    }
+  } else if (last.repeatMonthDay) {
+    for (let k = 0; k < 24; k++) {
+      const y = after.getFullYear(), m = after.getMonth() + k;
+      const d = at(new Date(y, m, Math.min(last.repeatMonthDay, new Date(y, m + 1, 0).getDate())));
+      if (d > after && d <= last.repeatUntil) dates.push(d);
+    }
+  }
+  if (!dates.length) return 0;
+  const steps = Array.isArray(last.checklist) ? (last.checklist as Array<{ label: string }>).map((x) => ({ label: x.label, done: false })) : undefined;
+  await prisma.maintenancePlan.createMany({
+    data: dates.map((plannedDate) => ({
+      title: last.title, category: last.category, subType: last.subType, vesselId: last.vesselId, description: last.description,
+      technicianId: last.technicianId, helperIds: last.helperIds, priority: last.priority, estimatedHours: last.estimatedHours,
+      repeatWeekdays: last.repeatWeekdays, repeatMonthDay: last.repeatMonthDay, repeatUntil: last.repeatUntil, seriesId,
+      source: last.source, requestedById: last.requestedById, checklist: steps, plannedDate, startDate: plannedDate, status: 'PLANNED' as const,
+    })),
+  });
+  return dates.length;
+}
 
 async function main() {
   console.log('Veritabanı temizleniyor...');
