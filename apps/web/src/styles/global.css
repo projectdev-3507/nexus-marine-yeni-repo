@@ -558,3 +558,10 @@ table.table { width: 100%; border-collapse: separate; border-spacing: 0; }
 @media (max-width: 640px) { .modal { max-height: 92dvh; } .modal-foot { padding-bottom: max(14px, env(safe-area-inset-bottom)); } }
 /* iPhone Safari: arka plan katmanı görünür ekran kadar (alt araç çubuğunun altına taşmaz) */
 @media (max-width: 640px) { .modal-root { bottom: auto; height: 100dvh; } }
+/* Pencere ekrandan geniş açılmasın: içerikteki geniş öğeler pencereyi büyütmez, gerekiyorsa kendi içinde sığar */
+.modal-root { grid-template-columns: minmax(0, 1fr); }
+.modal { min-width: 0; justify-self: center; }
+.modal-body { overflow-x: hidden; }
+.modal-body .row, .modal-body .form-grid > * { min-width: 0; }
+.modal-body select.select, .modal-body .input, .modal-body .textarea { max-width: 100%; }
+@media (max-width: 640px) { .modal { justify-self: stretch; } .modal-body .row.mb-2 { flex-wrap: wrap; } .modal-body .row.mb-2 > .select { min-width: 0 !important; flex: 1 1 100%; } }
