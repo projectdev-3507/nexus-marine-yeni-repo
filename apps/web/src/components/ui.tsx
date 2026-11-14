@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Inbox, CheckCircle2, AlertTriangle, Search, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Tone } from '../lib/labels';
 import { initials } from '../lib/format';
@@ -51,7 +52,7 @@ export function Modal({ open, onClose, title, children, footer, size }: { open: 
     };
   }, [open, onClose]);
   if (!open) return null;
-  return (
+  return createPortal(
     <div className="modal-root" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className={`modal ${size ?? ''}`} role="dialog" aria-modal="true">
         <div className="modal-head">
@@ -63,7 +64,8 @@ export function Modal({ open, onClose, title, children, footer, size }: { open: 
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

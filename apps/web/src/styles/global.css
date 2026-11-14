@@ -550,3 +550,11 @@ table.table { width: 100%; border-collapse: separate; border-spacing: 0; }
 
 /* Bakım başlıkları (paketler) çoksa alt satıra geçsin; sekmede kısa ad görünür */
 .maint-tabs { flex-wrap: wrap; overflow-x: visible; }
+
+/* Pencere: alt butonlar her zaman görünür (gövde kayar; telefonda adres çubuğu hesaba katılır) */
+.modal { max-height: calc(100dvh - 40px); }
+.modal-head, .modal-foot { flex: none; }
+.modal-body { flex: 1 1 auto; min-height: 0; }
+@media (max-width: 640px) { .modal { max-height: 92dvh; } .modal-foot { padding-bottom: max(14px, env(safe-area-inset-bottom)); } }
+/* iPhone Safari: arka plan katmanı görünür ekran kadar (alt araç çubuğunun altına taşmaz) */
+@media (max-width: 640px) { .modal-root { bottom: auto; height: 100dvh; } }
