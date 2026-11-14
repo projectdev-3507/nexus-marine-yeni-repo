@@ -11,6 +11,7 @@ import { managerIds, notify, vesselClientUserIds } from '../services/notify';
 import { sanitizeWorkOrderForClient, transitionWorkOrder, isAssigned } from '../services/workorders';
 import { attachmentsFor } from './files';
 import { audit } from '../lib/audit';
+import { removeWorkOrders } from '../services/cleanup';
 
 export const workOrdersRouter = Router();
 
@@ -393,18 +394,9 @@ workOrdersRouter.delete(
   '/:id',
   requirePerm('workorders.manage'),
   ah<AuthedRequest>(async (req, res) => {
-    const wo = await prisma.workOrder.findFirst({ where: { id: req.params.id, ...vesselFilter(req.user) }, include: { materials: true, comments: { select: { id: true } } } });
+    const wo = await prisma.workOrder.findFirst({ where: { id: req.params.id, ...vesselFilter(req.user) }, select: { id: true, number: true, title: true } });
     if (!wo) throw notFound('İş emri');
-    await prisma.$transaction(async (tx) => {
-      for (const u of wo.materials) if (u.materialId) await tx.material.update({ where: { id: u.materialId }, data: { stock: { increment: u.quantity } } });
-      await tx.fault.updateMany({ where: { workOrderId: wo.id, status: { not: 'RESOLVED' } }, data: { workOrderId: null, status: 'OPEN' } });
-      await tx.fault.updateMany({ where: { workOrderId: wo.id }, data: { workOrderId: null } });
-      await tx.maintenancePlan.updateMany({ where: { workOrderId: wo.id }, data: { workOrderId: null } });
-      await tx.report.updateMany({ where: { workOrderId: wo.id }, data: { workOrderId: null } });
-      await tx.attachment.deleteMany({ where: { OR: [{ entityType: 'WORK_ORDER', entityId: wo.id }, { entityType: 'COMMENT', entityId: { in: wo.comments.map((c) => c.id) } }] } });
-      await tx.notification.deleteMany({ where: { link: `/work-orders/${wo.id}` } });
-      await tx.workOrder.delete({ where: { id: wo.id } });
-    });
+    await prisma.$transaction((tx) => removeWorkOrders(tx, [wo.id], { restoreStock: true }), { timeout: 30000 });
     await audit(req.user.id, 'workorder.delete', 'WorkOrder', wo.id, { number: wo.number, title: wo.title });
     res.json({ ok: true });
   }),

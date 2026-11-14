@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Plus, KeyRound, ShieldCheck, Ship, Anchor, HardHat, Briefcase, ChevronLeft, ChevronRight, Check, X } from 'lucide-react';
+import { Plus, Trash2, KeyRound, ShieldCheck, Ship, Anchor, HardHat, Briefcase, ChevronLeft, ChevronRight, Check, X } from 'lucide-react';
 import { ROLES, ROLE_PERMISSIONS, PERMISSIONS, type Role } from '@nexus/shared';
 import { useApi, useAction, useListState } from '../lib/hooks';
 import { api } from '../lib/api';
@@ -34,13 +34,21 @@ function UserList() {
   const [temp, setTemp] = useState<string | null>(null);
   const { data, isLoading } = useApi<any>('/users', { ...ls.query, role: role || undefined });
   const reset = useAction((id: string) => api(`/users/${id}/reset-password`, { body: {} }), { onSuccess: (r) => setTemp(r.temporaryPassword) });
+  const del = useAction((id: string) => api<any>(`/users/${id}`, { method: 'DELETE' }), { success: 'Kullanıcı silindi' });
+  const askDelete = (u: any) => {
+    const owner = u.roles.includes('OWNER') && u.customer;
+    const msg = owner
+      ? `${u.name} silinsin mi?\n\nTekne sahibi olduğu için ${u.customer.name} müşterisinin TEKNELERİ ve bu teknelerin tüm iş emirleri, bakımları, arızaları, denetimleri, raporları ve projeleri de silinir.\nBu işlem geri alınamaz.`
+      : `${u.name} silinsin mi?\nYalnızca kullanıcı hesabı silinir; atandığı işler ve tekneler yerinde kalır.\nBu işlem geri alınamaz.`;
+    if (confirm(msg)) del.mutate(u.id);
+  };
   const cols: Column<any>[] = [
     { key: 'n', label: 'Kullanıcı', render: (u) => <div className="row"><Avatar name={u.name} /><div><div className="cell-title">{u.name}</div><div className="cell-sub">{u.email}</div></div></div> },
     { key: 'r', label: 'Roller', render: (u) => <div className="row-wrap" style={{ gap: 4 }}>{u.roles.map((r: Role) => <Badge key={r} tone={ROLE_TONE[r]} plain>{ROLE_LABELS[r]}</Badge>)}</div> },
     { key: 'l', label: 'Tekne / müşteri ilişkisi', render: (u) => <div className="small">{u.customer && <div>Müşteri: {u.customer.name}</div>}{u.vesselLinks.map((l: any) => <div key={l.id} className="muted">{l.relation === 'CAPTAIN' ? 'Kaptan' : l.relation === 'OWNER' ? 'Sahip' : 'Mürettebat'}: {l.vessel.name}</div>)}{!u.customer && !u.vesselLinks.length && '—'}</div> },
     { key: 's', label: 'Durum', render: (u) => (u.isActive ? <Badge tone="ok">Aktif</Badge> : <Badge tone="neutral">Pasif</Badge>) },
     { key: 'll', label: 'Son giriş', render: (u) => (u.lastLoginAt ? relTime(u.lastLoginAt) : '—') },
-    { key: 'a', label: '', align: 'right', render: (u) => <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); confirm(`${u.name} için geçici şifre oluşturulsun mu?`) && reset.mutate(u.id); }}><KeyRound /> Şifre sıfırla</button> },
+    { key: 'a', label: '', align: 'right', render: (u) => <div className="row" style={{ gap: 6, justifyContent: 'flex-end' }}><button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); confirm(`${u.name} için geçici şifre oluşturulsun mu?`) && reset.mutate(u.id); }}><KeyRound /> Şifre sıfırla</button><button className="btn btn-sm btn-ghost btn-icon" title="Kullanıcıyı sil" style={{ color: 'var(--danger)' }} onClick={(e) => { e.stopPropagation(); askDelete(u); }}><Trash2 /></button></div> },
   ];
   return (
     <>

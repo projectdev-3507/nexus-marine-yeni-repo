@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from './api';
 import { useToast } from '../components/ui';
 
@@ -13,13 +14,16 @@ export function useApi<T = any>(path: string | null, query?: Record<string, unkn
 }
 
 /** POST/PUT/PATCH yardımcı — başarıda sorguları yeniler ve bildirim gösterir */
-export function useAction<TBody = any, TRes = any>(fn: (body: TBody) => Promise<TRes>, opts: { success?: string; invalidate?: boolean; onSuccess?: (r: TRes) => void } = {}) {
+export function useAction<TBody = any, TRes = any>(fn: (body: TBody) => Promise<TRes>, opts: { success?: string; invalidate?: boolean; onSuccess?: (r: TRes) => void; redirect?: string } = {}) {
   const qc = useQueryClient();
   const toast = useToast();
+  const navigate = useNavigate();
   return useMutation({
     mutationFn: fn,
     onSuccess: (r) => {
-      if (opts.invalidate !== false) void qc.invalidateQueries();
+      // Silme gibi işlemlerde önce sayfadan çıkılır; silinen kayıt yeniden yüklenmeye çalışılmaz
+      if (opts.redirect) { navigate(opts.redirect); setTimeout(() => void qc.invalidateQueries(), 0); }
+      else if (opts.invalidate !== false) void qc.invalidateQueries();
       if (opts.success) toast(opts.success, 'success');
       opts.onSuccess?.(r);
     },

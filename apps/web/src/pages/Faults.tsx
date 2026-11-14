@@ -112,7 +112,7 @@ export function FaultDetail() {
     return c;
   }, { success: 'Yorum eklendi', onSuccess: () => { setComment(''); setPending([]); } });
   const resolve = useAction(() => api(`/faults/${id}`, { method: 'PUT', body: { status: 'RESOLVED' } }), { success: 'Arıza giderildi olarak işaretlendi' });
-  const delFault = useAction(() => api(`/faults/${id}`, { method: 'DELETE' }), { success: 'Arıza silindi', onSuccess: () => nav('/faults') });
+  const delFault = useAction(() => api(`/faults/${id}`, { method: 'DELETE' }), { success: 'Arıza silindi', redirect: '/faults' });
   if (!f) return <Loading />;
   const customer = f.source === 'CUSTOMER';
   return (

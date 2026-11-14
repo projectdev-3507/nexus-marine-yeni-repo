@@ -8,6 +8,8 @@ import { assertVesselAccess, can, requirePerm, vesselFilter, type AuthedRequest 
 import { paginate, paginationQuery, zOptDate, zOptNum, zOptStr } from '../lib/validate';
 import { attachmentsFor } from './files';
 import { managerIds, notify, vesselClientUserIds } from '../services/notify';
+import { removeProject } from '../services/cleanup';
+import { audit } from '../lib/audit';
 
 export const projectsRouter = Router();
 
@@ -327,5 +329,18 @@ projectsRouter.patch(
     const inst = await prisma.paymentInstallment.findFirst({ where: { id: req.params.instId, projectId: req.params.id } });
     if (!inst) throw badRequest('Taksit bulunamadı');
     res.json(await prisma.paymentInstallment.update({ where: { id: inst.id }, data: body }));
+  }),
+);
+
+/** Projeyi sil: fazlar, görevler, ek iş talepleri ve taksitler silinir; bağlı iş emirleri ve raporlar korunur */
+projectsRouter.delete(
+  '/:id',
+  requirePerm('projects.manage'),
+  ah<AuthedRequest>(async (req, res) => {
+    const p = await prisma.project.findFirst({ where: { id: req.params.id, ...vesselFilter(req.user) }, select: { id: true, name: true } });
+    if (!p) throw notFound('Proje');
+    await prisma.$transaction((tx) => removeProject(tx, p.id), { timeout: 30000 });
+    await audit(req.user.id, 'project.delete', 'Project', p.id, { name: p.name });
+    res.json({ ok: true });
   }),
 );

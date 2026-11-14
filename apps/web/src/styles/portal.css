@@ -94,7 +94,8 @@
 .pcal-legend b { color: var(--navy); }
 .k-maint { --c: #6d4bd8; --cbg: #f0ecfd; }
 .k-wo { --c: #1767ad; --cbg: #e7f1fb; }
-.k-proj { --c: #0e9488; --cbg: #e3f6f3; }
+/* Proje turuncu: yeşil "tamamlandı" ile karışmasın */
+.k-proj { --c: #d9730d; --cbg: #fdf0e3; }
 .pcal-wd { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 11.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding: 4px 0 6px; }
 .pcal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
 .pcal-day { aspect-ratio: 1 / 0.92; border: 0; background: none; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer; font: inherit; color: var(--navy); transition: background 0.12s; }

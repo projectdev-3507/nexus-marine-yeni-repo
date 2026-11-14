@@ -83,6 +83,7 @@ export function ProjectDetail() {
   const [tab, setTab] = useState<TabKey>('plan');
   const [edit, setEdit] = useState(false);
   const [cr, setCr] = useState(false);
+  const delProject = useAction(() => api(`/projects/${id}`, { method: 'DELETE' }), { success: 'Proje silindi', redirect: '/projects' });
   if (!p) return <Loading />;
   const manage = can('projects.manage');
   const tabs: Array<{ key: TabKey; label: string; count?: number }> = [
@@ -105,6 +106,7 @@ export function ProjectDetail() {
             <button className="btn" onClick={() => setCr(true)}><Plus /> Ek iş talebi</button>
             {can('reports.manage') && <button className="btn" onClick={() => nav(`/reports?new=1&type=HULL_RESTORATION&vesselId=${p.vessel.id}&projectId=${p.id}`)}><FileText /> Rapor oluştur</button>}
             {manage && <button className="btn btn-primary" onClick={() => setEdit(true)}><Pencil /> Düzenle</button>}
+            {manage && <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} disabled={delProject.isPending} onClick={() => confirm(`"${p.name}" projesi silinsin mi?\nFazlar, görevler, ek iş talepleri ve ödeme planı da silinir; bağlı iş emirleri ve raporlar korunur. Bu işlem geri alınamaz.`) && delProject.mutate(undefined)}><Trash2 /> Sil</button>}
           </>
         }
       />

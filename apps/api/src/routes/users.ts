@@ -5,11 +5,12 @@ import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { ROLES } from '@nexus/shared';
 import { prisma } from '../db';
-import { ah, badRequest } from '../lib/errors';
+import { ah, badRequest, notFound } from '../lib/errors';
 import { requirePerm, type AuthedRequest } from '../lib/auth';
 import { paginate, paginationQuery, zOptStr } from '../lib/validate';
 import { audit } from '../lib/audit';
 import { publicUser } from './auth';
+import { removeVessel } from '../services/cleanup';
 
 export const usersRouter = Router();
 export const techniciansRouter = Router();
@@ -271,5 +272,41 @@ techniciansRouter.get(
         };
       }),
     );
+  }),
+);
+
+/**
+ * Kullanıcıyı sil. Tekne sahibi (müşteri) ise müşterisinin tekneleri de tüm kayıtlarıyla silinir;
+ * kaptan ve personelde yalnızca kullanıcı silinir (atandığı işlerde bağlantı kalkar).
+ */
+usersRouter.delete(
+  '/:id',
+  requirePerm('users.manage'),
+  ah<AuthedRequest>(async (req, res) => {
+    if (req.params.id === req.user.id) throw badRequest('Kendi hesabınızı silemezsiniz');
+    const u = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!u) throw notFound('Kullanıcı');
+    if (u.roles.includes('SUPER_ADMIN') && (await prisma.user.count({ where: { roles: { has: 'SUPER_ADMIN' }, isActive: true } })) <= 1) throw badRequest('Son süper admin silinemez');
+    if (await prisma.inspection.count({ where: { inspectorId: u.id } })) throw badRequest('Bu kullanıcının yaptığı denetimler var; silmek yerine hesabı pasifleştirin.');
+    const owner = u.roles.includes('OWNER') && !!u.customerId;
+    const vessels = owner ? await prisma.vessel.findMany({ where: { ownerId: u.customerId! }, select: { id: true, name: true } }) : [];
+    await prisma.$transaction(async (tx) => {
+      for (const v of vessels) await removeVessel(tx, v.id);
+      // Atandığı / talep ettiği kayıtlarda bağlantı kalkar
+      await tx.maintenancePlan.updateMany({ where: { technicianId: u.id }, data: { technicianId: null } });
+      await tx.workOrder.updateMany({ where: { technicianId: u.id }, data: { technicianId: null } });
+      await tx.workOrder.updateMany({ where: { requestedById: u.id }, data: { requestedById: null } });
+      await tx.workOrderHistory.updateMany({ where: { userId: u.id }, data: { userId: null } });
+      await tx.project.updateMany({ where: { managerId: u.id }, data: { managerId: null } });
+      await tx.projectPhase.updateMany({ where: { responsibleId: u.id }, data: { responsibleId: null } });
+      await tx.auditLog.updateMany({ where: { userId: u.id }, data: { userId: null } });
+      const comments = await tx.workOrderComment.findMany({ where: { userId: u.id }, select: { id: true } });
+      await tx.attachment.deleteMany({ where: { entityType: 'COMMENT', entityId: { in: comments.map((c) => c.id) } } });
+      await tx.workOrderComment.deleteMany({ where: { userId: u.id } });
+      await tx.customerNote.deleteMany({ where: { authorId: u.id } });
+      await tx.user.delete({ where: { id: u.id } });
+    }, { timeout: 60000 });
+    await audit(req.user.id, 'user.delete', 'User', u.id, { name: u.name, email: u.email, vessels: vessels.map((v) => v.name) });
+    res.json({ ok: true, deletedVessels: vessels.map((v) => v.name) });
   }),
 );

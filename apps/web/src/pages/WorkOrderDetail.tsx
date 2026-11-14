@@ -53,7 +53,7 @@ export default function WorkOrderDetail() {
     { success: 'Yorum eklendi', onSuccess: () => { setComment(''); setPending([]); } },
   );
   const nav = useNavigate();
-  const delWo = useAction(() => api(`/work-orders/${id}`, { method: 'DELETE' }), { success: 'İş emri silindi', onSuccess: () => nav('/work-orders') });
+  const delWo = useAction(() => api(`/work-orders/${id}`, { method: 'DELETE' }), { success: 'İş emri silindi', redirect: '/work-orders' });
   const delFile = useAction((fileId: string) => api(`/files/${fileId}`, { method: 'DELETE' }), { success: 'Dosya silindi' });
   const addMat = useAction(() => api(`/work-orders/${id}/materials`, { body: { materialId: mat.materialId, quantity: Number(mat.quantity) } }), { success: 'Malzeme eklendi, stoktan düşüldü', onSuccess: () => setMat({ materialId: '', quantity: '' }) });
   const delMat = useAction((usageId: string) => api(`/work-orders/${id}/materials/${usageId}`, { method: 'DELETE' }), { success: 'Malzeme kaldırıldı' });
